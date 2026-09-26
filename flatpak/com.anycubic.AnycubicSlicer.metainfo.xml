@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.anycubic.AnycubicSlicer</id>
+  <name>Anycubic Slicer Next</name>
+  <summary>3D printing slicer for Anycubic printers</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0</project_license>
+  <launchable type="desktop-id">com.anycubic.AnycubicSlicer.desktop</launchable>
+  <url type="homepage">https://github.com/celso-alexandre/anycubic-slicer-next</url>
+  <description>
+    <p>Unofficial repack of the official Anycubic Slicer Next Ubuntu 24.04 package.</p>
+  </description>
+  <releases>
+    <release version="1.3.9.3" date="2026-01-31"/>
+  </releases>
+</component>

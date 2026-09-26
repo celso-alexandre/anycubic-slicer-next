@@ -1,19 +1,63 @@
 # Anycubic Slicer Next
 
-[![GitHub release](https://img.shields.io/github/release/develonrails/anycubic-slicer-next.svg)](https://github.com/develonrails/anycubic-slicer-next/releases)
+[![GitHub release](https://img.shields.io/github/release/celso-alexandre/anycubic-slicer-next.svg)](https://github.com/celso-alexandre/anycubic-slicer-next/releases)
+[![Build](https://github.com/celso-alexandre/anycubic-slicer-next/actions/workflows/build.yml/badge.svg)](https://github.com/celso-alexandre/anycubic-slicer-next/actions/workflows/build.yml)
 
-Flatpak and AppImage of the Anycubic Slicer next.
+Flatpak and AppImage of Anycubic Slicer Next, repacked from Anycubic's official Ubuntu 24.04
+`.deb`. Unofficial, not affiliated with Anycubic.
 
-Download at [releases](https://github.com/develonrails/anycubic-slicer-next/releases) page.
+This is a maintained fork of [develonrails/anycubic-slicer-next](https://github.com/develonrails/anycubic-slicer-next):
+new Anycubic releases are picked up automatically (see [How updates work](#how-updates-work)).
 
-Flatpak
- - Install and your good to go!
+## Flatpak (recommended, auto-updates)
 
-AppImage
- - Download
- - Hit properties of file, enable "Execute as program"
- - Your good to go!
+Add the repo once; after that `flatpak update`, GNOME Software and KDE Discover keep it current.
 
-My first ever Flatpak/AppImage created so no guarantees given. So far all seems to work. 
+```bash
+flatpak install --user https://celso-alexandre.github.io/anycubic-slicer-next/com.anycubic.AnycubicSlicer.flatpakref
+```
 
-If this helps you please star the repo or support me on Ko-fi.
+Use `--system` instead of `--user` to share one install between all users of the machine.
+The runtime (GNOME 50) comes from Flathub.
+
+Coming from a `.flatpak` bundle installed earlier? Uninstall it first — a bundle never
+updates. Your settings under `~/.var/app/com.anycubic.AnycubicSlicer` are kept.
+
+```bash
+flatpak uninstall com.anycubic.AnycubicSlicer
+```
+
+A standalone `.flatpak` bundle is also attached to every [release](https://github.com/celso-alexandre/anycubic-slicer-next/releases).
+
+## AppImage
+
+Download from [releases](https://github.com/celso-alexandre/anycubic-slicer-next/releases),
+mark it executable and run it. Needs a recent distro (glibc 2.38+) with WebKit2GTK 4.1,
+GTK 3 and GStreamer installed — see [appimage/HOWTO.md](appimage/HOWTO.md).
+
+## How updates work
+
+- `.github/workflows/check-update.yml` runs weekly. When Anycubic's APT repo has a new
+  `.deb`, `ci/check-update.sh` bumps the URL, checksum and version, and a single
+  `auto/update-deb` pull request is opened (or updated, if one is already open).
+- `.github/workflows/build.yml` builds both packages on every PR and push, and
+  `ci/smoke-test.sh` proves each one starts: launched on a headless X server with a fresh
+  profile, the first-run Setup Wizard window must appear, fonts must load, the app must
+  still be running 15 seconds later, and the screen must not be blank. The Flatpak is
+  tested from its bundle on a clean runner, the way a user installs it. Screenshots are
+  attached to every run.
+- When the tests pass, the update PR merges itself, which publishes the GitHub release
+  and the signed flatpak repo on GitHub Pages.
+
+## Building locally
+
+```bash
+ci/build-appimage.sh build                   # -> build/AnycubicSlicer-<version>-x86_64.AppImage
+flatpak-builder --user --install --force-clean build-flatpak flatpak/com.anycubic.AnycubicSlicer.yml
+ci/smoke-test.sh build/AnycubicSlicer-*-x86_64.AppImage --appimage-extract-and-run   # needs Xvfb, ImageMagick
+```
+
+The version lives in `flatpak/com.anycubic.AnycubicSlicer.metainfo.xml`; the `.deb` URL and
+checksum in the Flatpak manifest. Both builds read them from there.
+
+Credit to [develonrails](https://github.com/develonrails) for the original packaging.

@@ -1,0 +1,182 @@
+name: Build
+
+# Builds and smoke-tests both packages on every PR and push.
+# - auto/update-deb (dispatched weekly by check-update.yml): merge when green.
+# - main, with a version that has no GitHub release yet: publish the release assets and
+#   the signed flatpak repo on Pages.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAS_KEY: ${{ secrets.FLATPAK_GPG_KEY_ID != '' }}
+        run: |
+          V=$(grep -oPm1 '<release version="\K[^"]+' flatpak/com.anycubic.AnycubicSlicer.metainfo.xml)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          # Merges done by automerge below arrive as workflow_dispatch, not push
+          if [ "$GITHUB_REF" = refs/heads/main ] && [ "$GITHUB_EVENT_NAME" != pull_request ] &&
+             ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ "$HAS_KEY" = true ]; then
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::$V is unreleased but FLATPAK_GPG_KEY_ID is not set; skipping publish"
+            fi
+          fi
+
+  appimage:
+    needs: meta
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools xvfb imagemagick libwebkit2gtk-4.1-0 libgtk-3-0t64 \
+            libglu1-mesa gstreamer1.0-libav gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+      - name: Build
+        run: ci/build-appimage.sh build
+      - name: Smoke test
+        env:
+          SMOKE_SCREENSHOT: smoke-appimage.png
+        run: ci/smoke-test.sh "build/AnycubicSlicer-${{ needs.meta.outputs.version }}-x86_64.AppImage" --appimage-extract-and-run
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: screenshot-appimage
+          path: smoke-appimage.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: appimage
+          path: build/*.AppImage
+          compression-level: 0
+
+  flatpak:
+    needs: meta
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v7
+      - name: Import signing key
+        if: needs.meta.outputs.publish == 'true'
+        env:
+          GPG_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_KEY" | gpg --batch --import
+          echo "GPG_ARGS=--gpg-sign=${{ secrets.FLATPAK_GPG_KEY_ID }}" >> "$GITHUB_ENV"
+      - name: Build
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak-builder --user --install-deps-from=flathub --force-clean --disable-rofiles-fuse \
+            --repo=repo $GPG_ARGS build flatpak/com.anycubic.AnycubicSlicer.yml
+          flatpak build-bundle repo "AnycubicSlicer-${{ needs.meta.outputs.version }}.flatpak" \
+            com.anycubic.AnycubicSlicer stable --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak
+          path: "*.flatpak"
+          compression-level: 0
+      - name: Assemble Pages site
+        if: needs.meta.outputs.publish == 'true'
+        run: |
+          flatpak build-update-repo --generate-static-deltas --prune $GPG_ARGS repo
+          mkdir site && mv repo site/repo
+          cp flatpak/anycubic-slicer.flatpakrepo flatpak/com.anycubic.AnycubicSlicer.flatpakref site/
+      - uses: actions/upload-pages-artifact@v5
+        if: needs.meta.outputs.publish == 'true'
+        with:
+          path: site
+
+  # Tested outside the build container: installs the bundle the way a user would, runtime
+  # from Flathub included
+  flatpak-test:
+    needs: [meta, flatpak]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: flatpak
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak xvfb imagemagick dbus-daemon dbus-bin
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive "AnycubicSlicer-${{ needs.meta.outputs.version }}.flatpak"
+      - name: Smoke test
+        env:
+          SMOKE_SCREENSHOT: smoke-flatpak.png
+        # A session bus like any desktop has: GTK on GNOME 50 decodes icons through glycin,
+        # whose loaders are sandboxed via the Flatpak portal; without the bus the app aborts
+        run: dbus-run-session -- ci/smoke-test.sh flatpak run com.anycubic.AnycubicSlicer
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: screenshot-flatpak
+          path: smoke-flatpak.png
+
+  publish:
+    needs: [meta, appimage, flatpak-test]
+    if: needs.meta.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: "{appimage,flatpak}"
+          merge-multiple: true
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.meta.outputs.version }}
+        run: |
+          gh release create "$V" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$V" \
+            --notes "Anycubic Slicer Next $V, repacked from Anycubic's official Ubuntu 24.04 .deb.
+
+          Flatpak with automatic updates: see the README. One-off installs: the files below." \
+            *.AppImage *.flatpak
+      - uses: actions/deploy-pages@v5
+
+  automerge:
+    needs: [appimage, flatpak-test]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/auto/update-deb'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          # --match-head-commit: never merge a commit other than the one just tested
+          gh pr merge "$BRANCH" -R "$GITHUB_REPOSITORY" --squash --delete-branch --match-head-commit "$SHA"
+          # A merge made with GITHUB_TOKEN fires no push event, so start main's run (which publishes)
+          gh workflow run build.yml -R "$GITHUB_REPOSITORY" --ref main

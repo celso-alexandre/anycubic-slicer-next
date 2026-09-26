@@ -1,0 +1,9 @@
+[Flatpak Ref]
+Name=com.anycubic.AnycubicSlicer
+Branch=stable
+Title=Anycubic Slicer Next
+Url=https://celso-alexandre.github.io/anycubic-slicer-next/repo/
+SuggestRemoteName=anycubic-slicer
+RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo
+IsRuntime=false
+GPGKey=mDMEardGFBYJKwYBBAHaRw8BAQdArcLHRZrMcbPp53qyqjqiILesXEWSquZhDC3Qb/4J3520TGFueWN1YmljLXNsaWNlci1uZXh0IGZsYXRwYWsgcmVwbyA8Y2Vsc28tYWxleGFuZHJlQHVzZXJzLm5vcmVwbHkuZ2l0aHViLmNvbT6IkwQTFgoAOxYhBNHZGk8bWEFIysQxxO7jVvXoMUdMBQJqt0YUAhsDBQsJCAcCAiICBhUKCQgLAgQWAgMBAh4HAheAAAoJEO7jVvXoMUdMLRIA/12fLKeZ5GU995hiQ42C/4feKpaRDxdwW5lFC0QlR2s8AQDZFN/2YsG1CPE0C3OeiDCVVWmYwzrWLk8Lb9x4gZz4Cw==
