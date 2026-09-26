@@ -22,24 +22,31 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.v.outputs.version }}
-      publish: ${{ steps.v.outputs.publish }}
+      release: ${{ steps.v.outputs.release }}
+      pages: ${{ steps.v.outputs.pages }}
     steps:
       - uses: actions/checkout@v7
       - id: v
         env:
           GH_TOKEN: ${{ github.token }}
           HAS_KEY: ${{ secrets.FLATPAK_GPG_KEY_ID != '' }}
+          SITE: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         run: |
           V=$(grep -oPm1 '<release version="\K[^"]+' flatpak/com.anycubic.AnycubicSlicer.metainfo.xml)
           echo "version=$V" >> "$GITHUB_OUTPUT"
           # Merges done by automerge below arrive as workflow_dispatch, not push
-          if [ "$GITHUB_REF" = refs/heads/main ] && [ "$GITHUB_EVENT_NAME" != pull_request ] &&
-             ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            if [ "$HAS_KEY" = true ]; then
-              echo "publish=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "::warning::$V is unreleased but FLATPAK_GPG_KEY_ID is not set; skipping publish"
-            fi
+          [ "$GITHUB_REF" = refs/heads/main ] && [ "$GITHUB_EVENT_NAME" != pull_request ] || exit 0
+
+          NEW=false
+          gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || NEW=true
+          echo "release=$NEW" >> "$GITHUB_OUTPUT"
+
+          # The flatpak repo must be signed; publish it once the key exists, for a new
+          # version or when the site is not up yet
+          if [ "$HAS_KEY" != true ]; then
+            echo "::warning::FLATPAK_GPG_KEY_ID is not set; the flatpak repo on Pages is not published"
+          elif [ "$NEW" = true ] || ! curl -fsSIo /dev/null "$SITE/anycubic-slicer.flatpakrepo"; then
+            echo "pages=true" >> "$GITHUB_OUTPUT"
           fi
 
   appimage:
@@ -78,7 +85,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Import signing key
-        if: needs.meta.outputs.publish == 'true'
+        if: needs.meta.outputs.pages == 'true'
         env:
           GPG_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
         run: |
@@ -97,13 +104,13 @@ jobs:
           path: "*.flatpak"
           compression-level: 0
       - name: Assemble Pages site
-        if: needs.meta.outputs.publish == 'true'
+        if: needs.meta.outputs.pages == 'true'
         run: |
           flatpak build-update-repo --generate-static-deltas --prune $GPG_ARGS repo
           mkdir site && mv repo site/repo
           cp flatpak/anycubic-slicer.flatpakrepo flatpak/com.anycubic.AnycubicSlicer.flatpakref site/
       - uses: actions/upload-pages-artifact@v5
-        if: needs.meta.outputs.publish == 'true'
+        if: needs.meta.outputs.pages == 'true'
         with:
           path: site
 
@@ -137,7 +144,7 @@ jobs:
 
   publish:
     needs: [meta, appimage, flatpak-test]
-    if: needs.meta.outputs.publish == 'true'
+    if: needs.meta.outputs.release == 'true' || needs.meta.outputs.pages == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -151,6 +158,7 @@ jobs:
           pattern: "{appimage,flatpak}"
           merge-multiple: true
       - name: GitHub release
+        if: needs.meta.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           V: ${{ needs.meta.outputs.version }}
@@ -161,6 +169,7 @@ jobs:
           Flatpak with automatic updates: see the README. One-off installs: the files below." \
             *.AppImage *.flatpak
       - uses: actions/deploy-pages@v5
+        if: needs.meta.outputs.pages == 'true'
 
   automerge:
     needs: [appimage, flatpak-test]
