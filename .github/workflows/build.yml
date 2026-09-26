@@ -28,13 +28,18 @@ jobs:
       - id: v
         env:
           GH_TOKEN: ${{ github.token }}
+          HAS_KEY: ${{ secrets.FLATPAK_GPG_KEY_ID != '' }}
         run: |
           V=$(grep -oPm1 '<release version="\K[^"]+' flatpak/com.anycubic.AnycubicSlicer.metainfo.xml)
           echo "version=$V" >> "$GITHUB_OUTPUT"
           # Merges done by automerge below arrive as workflow_dispatch, not push
           if [ "$GITHUB_REF" = refs/heads/main ] && [ "$GITHUB_EVENT_NAME" != pull_request ] &&
              ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
+            if [ "$HAS_KEY" = true ]; then
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::$V is unreleased but FLATPAK_GPG_KEY_ID is not set; skipping publish"
+            fi
           fi
 
   appimage:
@@ -115,13 +120,15 @@ jobs:
       - name: Install
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak xvfb imagemagick
+          sudo apt-get install -y flatpak xvfb imagemagick dbus-daemon dbus-bin
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y --noninteractive "AnycubicSlicer-${{ needs.meta.outputs.version }}.flatpak"
       - name: Smoke test
         env:
           SMOKE_SCREENSHOT: smoke-flatpak.png
-        run: ci/smoke-test.sh flatpak run com.anycubic.AnycubicSlicer
+        # A session bus like any desktop has: GTK on GNOME 50 decodes icons through glycin,
+        # whose loaders are sandboxed via the Flatpak portal; without the bus the app aborts
+        run: dbus-run-session -- ci/smoke-test.sh flatpak run com.anycubic.AnycubicSlicer
       - uses: actions/upload-artifact@v7
         if: always()
         with:
