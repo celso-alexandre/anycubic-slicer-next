@@ -20,7 +20,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       BRANCH: auto/update-deb
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: check
         run: |
           set +e; V=$(ci/check-update.sh); rc=$?; set -e

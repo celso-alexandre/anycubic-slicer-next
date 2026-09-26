@@ -40,10 +40,13 @@ GTK 3 and GStreamer installed — see [appimage/HOWTO.md](appimage/HOWTO.md).
 - `.github/workflows/check-update.yml` runs weekly. When Anycubic's APT repo has a new
   `.deb`, `ci/check-update.sh` bumps the URL, checksum and version, and a single
   `auto/update-deb` pull request is opened (or updated, if one is already open).
-- `.github/workflows/build.yml` builds both packages on every PR and push and
-  smoke-tests them: the slicer is launched under Xvfb with a fresh profile and must load
-  its fonts and stay up for 45 seconds.
-- Merging to `main` with a version that has no release yet publishes the GitHub release
+- `.github/workflows/build.yml` builds both packages on every PR and push, and
+  `ci/smoke-test.sh` proves each one starts: launched on a headless X server with a fresh
+  profile, the first-run Setup Wizard window must appear, fonts must load, the app must
+  still be running 15 seconds later, and the screen must not be blank. The Flatpak is
+  tested from its bundle on a clean runner, the way a user installs it. Screenshots are
+  attached to every run.
+- When the tests pass, the update PR merges itself, which publishes the GitHub release
   and the signed flatpak repo on GitHub Pages.
 
 ## Building locally
@@ -51,7 +54,7 @@ GTK 3 and GStreamer installed — see [appimage/HOWTO.md](appimage/HOWTO.md).
 ```bash
 ci/build-appimage.sh build                   # -> build/AnycubicSlicer-<version>-x86_64.AppImage
 flatpak-builder --user --install --force-clean build-flatpak flatpak/com.anycubic.AnycubicSlicer.yml
-ci/smoke-test.sh build/AnycubicSlicer-*-x86_64.AppImage --appimage-extract-and-run
+ci/smoke-test.sh build/AnycubicSlicer-*-x86_64.AppImage --appimage-extract-and-run   # needs Xvfb, ImageMagick
 ```
 
 The version lives in `flatpak/com.anycubic.AnycubicSlicer.metainfo.xml`; the `.deb` URL and
