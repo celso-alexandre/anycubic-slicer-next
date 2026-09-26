@@ -1,9 +1,9 @@
 app-id: com.anycubic.AnycubicSlicer
 runtime: org.gnome.Platform
-runtime-version: '48'
+runtime-version: '50'
 sdk: org.gnome.Sdk
 command: anycubic-slicer-wrapper
-branch: "1.3.9.3"
+branch: stable
 
 finish-args:
   # Display and IPC
@@ -34,7 +34,7 @@ modules:
     buildsystem: simple
     build-commands:
       # Extract the deb package
-      - ar x anycubicslicernext_1.3.96.deb
+      - ar x anycubicslicernext.deb
       - tar xf data.tar.gz
 
       # Install files to flatpak prefix
@@ -68,8 +68,15 @@ modules:
       - install -Dm644 /app/share/applications/AnycubicSlicer.desktop /app/share/applications/com.anycubic.AnycubicSlicer.desktop
       - sed -i 's/Icon=.*/Icon=com.anycubic.AnycubicSlicer/' /app/share/applications/com.anycubic.AnycubicSlicer.desktop
       - sed -i 's/Exec=.*/Exec=anycubic-slicer-wrapper %U/' /app/share/applications/com.anycubic.AnycubicSlicer.desktop
+      - install -Dm644 com.anycubic.AnycubicSlicer.metainfo.xml /app/share/metainfo/com.anycubic.AnycubicSlicer.metainfo.xml
       - install -Dm644 /app/share/AnycubicSlicerNext/resources/images/AnycubicSlicer_192px.png /app/share/icons/hicolor/192x192/apps/com.anycubic.AnycubicSlicer.png
 
     sources:
+      # Official Ubuntu 24.04 build from Anycubic's APT repo; check the latest with:
+      # curl -s https://cdn-universe-slicer.anycubic.com/prod/dists/noble/main/binary-amd64/Packages
       - type: file
-        path: ubuntu-24-deb-file/anycubicslicernext_1.3.96.deb
+        url: https://cdn-universe-slicer.anycubic.com/prod/pool/main/a/anycubicslicernext/AnycubicSlicerNext_linux-v2.0.0.5-20260913065625.deb
+        sha256: fe087a56014ed25cdfe4c3c293b517adaee0a9b2e1ded79f5e394b7968817c15
+        dest-filename: anycubicslicernext.deb
+      - type: file
+        path: com.anycubic.AnycubicSlicer.metainfo.xml

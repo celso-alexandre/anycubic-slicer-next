@@ -1,0 +1,123 @@
+name: Build
+
+# PRs and pushes build and smoke-test both packages. A push to main whose version has
+# no GitHub release yet also publishes: release assets + the flatpak repo on Pages.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: # check-update.yml dispatches this on its PR branch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(grep -oPm1 '<release version="\K[^"]+' flatpak/com.anycubic.AnycubicSlicer.metainfo.xml)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = push ] && ! gh release view "$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  appimage:
+    needs: meta
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools xvfb xauth libwebkit2gtk-4.1-0 libgtk-3-0t64 \
+            libglu1-mesa gstreamer1.0-libav gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+      - name: Build
+        run: ci/build-appimage.sh build
+      - name: Smoke test
+        run: ci/smoke-test.sh "build/AnycubicSlicer-${{ needs.meta.outputs.version }}-x86_64.AppImage" --appimage-extract-and-run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: build/*.AppImage
+          compression-level: 0
+
+  flatpak:
+    needs: meta
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import signing key
+        if: needs.meta.outputs.publish == 'true'
+        env:
+          GPG_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_KEY" | gpg --batch --import
+          echo "GPG_ARGS=--gpg-sign=${{ secrets.FLATPAK_GPG_KEY_ID }}" >> "$GITHUB_ENV"
+      - name: Build
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak-builder --user --install-deps-from=flathub --force-clean --disable-rofiles-fuse \
+            --repo=repo $GPG_ARGS build flatpak/com.anycubic.AnycubicSlicer.yml
+          flatpak build-bundle repo "AnycubicSlicer-${{ needs.meta.outputs.version }}.flatpak" \
+            com.anycubic.AnycubicSlicer stable --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo
+      - name: Smoke test
+        run: |
+          dnf install -y xorg-x11-server-Xvfb xorg-x11-xauth which >/dev/null
+          flatpak install --user -y --noninteractive "AnycubicSlicer-${{ needs.meta.outputs.version }}.flatpak"
+          ci/smoke-test.sh flatpak run com.anycubic.AnycubicSlicer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: "*.flatpak"
+          compression-level: 0
+      - name: Assemble Pages site
+        if: needs.meta.outputs.publish == 'true'
+        run: |
+          flatpak build-update-repo --generate-static-deltas --prune $GPG_ARGS repo
+          mkdir site && mv repo site/repo
+          cp flatpak/anycubic-slicer.flatpakrepo flatpak/com.anycubic.AnycubicSlicer.flatpakref site/
+      - uses: actions/upload-pages-artifact@v3
+        if: needs.meta.outputs.publish == 'true'
+        with:
+          path: site
+
+  publish:
+    needs: [meta, appimage, flatpak]
+    if: needs.meta.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.meta.outputs.version }}
+        run: |
+          gh release create "$V" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$V" \
+            --notes "Anycubic Slicer Next $V, repacked from Anycubic's official Ubuntu 24.04 .deb.
+
+          Flatpak with automatic updates: see the README. One-off installs: the files below." \
+            *.AppImage *.flatpak
+      - uses: actions/deploy-pages@v4
