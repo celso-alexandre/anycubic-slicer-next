@@ -1,7 +1,7 @@
 name: Check for new Anycubic release
 
-# Weekly: if Anycubic's APT repo has a newer .deb, (re)write the single auto/update-deb
-# branch and upsert one PR for it. Build runs are dispatched explicitly because pushes
+# Weekly: if Anycubic's APT repo has a newer .deb (plus Flathub's newest stable GNOME runtime),
+# (re)write the single auto/update-deb branch and upsert one PR for it. Build runs are dispatched explicitly because pushes
 # made with GITHUB_TOKEN do not trigger other workflows.
 on:
   schedule:
@@ -21,28 +21,36 @@ jobs:
       BRANCH: auto/update-deb
     steps:
       - uses: actions/checkout@v7
+      - name: Install flatpak (to list Flathub runtimes)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
       - id: check
         run: |
-          set +e; V=$(ci/check-update.sh); rc=$?; set -e
+          set +e; SUMMARY=$(ci/check-update.sh); rc=$?; set -e
           [ "$rc" = 3 ] && exit 0
           [ "$rc" = 0 ] || exit "$rc"
-          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
       - name: Upsert PR
-        if: steps.check.outputs.version
+        if: steps.check.outputs.summary
         env:
-          V: ${{ steps.check.outputs.version }}
+          SUMMARY: ${{ steps.check.outputs.summary }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git fetch -q origin "$BRANCH" 2>/dev/null && git diff --quiet FETCH_HEAD -- flatpak/; then
-            echo "$BRANCH already proposes $V"; exit 0
+            echo "$BRANCH already proposes: $SUMMARY"; exit 0
           fi
           git checkout -B "$BRANCH"
-          git commit -qam "Update to Anycubic Slicer Next $V"
+          git commit -qam "Update to $SUMMARY"
           git push -f origin "$BRANCH"
 
-          TITLE="Update to Anycubic Slicer Next $V"
-          BODY="Anycubic's APT repo has a new .deb: \`$(grep -oP 'url: \K\S+\.deb' flatpak/com.anycubic.AnycubicSlicer.yml)\`
+          TITLE="Update to $SUMMARY"
+          BODY="Weekly check: $SUMMARY.
+
+          - .deb: \`$(grep -oP 'url: \K\S+\.deb' flatpak/com.anycubic.AnycubicSlicer.yml)\`
+          - runtime: GNOME $(grep -oP "^runtime-version:\s*'?\K[0-9]+" flatpak/com.anycubic.AnycubicSlicer.yml)
 
           The Build workflow runs on this branch and smoke-tests both the Flatpak and the AppImage. Merging publishes the release and updates the flatpak repo."
           N=$(gh pr list --head "$BRANCH" --state open --json number -q '.[0].number')
