@@ -1,6 +1,6 @@
 app-id: com.anycubic.AnycubicSlicer
 runtime: org.gnome.Platform
-runtime-version: '50'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 command: anycubic-slicer-wrapper
 branch: stable
@@ -75,8 +75,8 @@ modules:
       # Official Ubuntu 24.04 build from Anycubic's APT repo; check the latest with:
       # curl -s https://cdn-universe-slicer.anycubic.com/prod/dists/noble/main/binary-amd64/Packages
       - type: file
-        url: https://cdn-universe-slicer.anycubic.com/prod/pool/main/a/anycubicslicernext/AnycubicSlicerNext_linux-v2.0.0.5-20260913065625.deb
-        sha256: fe087a56014ed25cdfe4c3c293b517adaee0a9b2e1ded79f5e394b7968817c15
+        url: https://cdn-universe-slicer.anycubic.com/prod/pool/main/a/anycubicslicernext/AnycubicSlicerNext_linux-v2.0.0.6-20261030105113.deb
+        sha256: fdb134a4e11fad7e795c8d425520ce1305321ccc0bf1375a651a1513f8854678
         dest-filename: anycubicslicernext.deb
       - type: file
         path: com.anycubic.AnycubicSlicer.metainfo.xml
